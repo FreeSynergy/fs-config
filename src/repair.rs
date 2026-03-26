@@ -15,6 +15,7 @@ impl TomlRepair {
     ///
     /// Only produces [`RepairAction::SetDefault`] / [`RepairAction::Insert`] for
     /// fields that have a `default_value` in the schema.
+    #[must_use]
     pub fn suggest(schema: &ConfigSchema, issues: &[ValidationIssue]) -> Vec<RepairAction> {
         let mut actions = Vec::new();
 
@@ -37,6 +38,7 @@ impl TomlRepair {
     /// Returns a list of human-readable descriptions for each successfully
     /// applied action.  Actions that cannot be applied (e.g. type mismatch) are
     /// silently skipped.
+    #[must_use]
     pub fn apply(root: &mut Value, actions: &[RepairAction]) -> Vec<String> {
         let mut applied = Vec::new();
 
@@ -140,10 +142,8 @@ fn remove_at_path(root: &mut Value, path: &str) -> bool {
 /// Read the value at `from`, write it to `to`, and remove `from`.
 /// Returns `true` if both operations succeeded.
 fn rename_path(root: &mut Value, from: &str, to: &str) -> bool {
-    // Clone the value at `from` first.
-    let val = match get_at_path_cloned(root, from) {
-        Some(v) => v,
-        None => return false,
+    let Some(val) = get_at_path_cloned(root, from) else {
+        return false;
     };
     let inserted = set_at_path(root, to, val);
     if inserted {
@@ -256,7 +256,7 @@ mod tests {
         let actions = vec![RepairAction::Remove {
             field: "junk".into(),
         }];
-        TomlRepair::apply(&mut value, &actions);
+        let _ = TomlRepair::apply(&mut value, &actions);
         assert!(value.get("junk").is_none());
         assert!(value.get("keep").is_some());
     }
@@ -268,7 +268,7 @@ mod tests {
             from: "old_name".into(),
             to: "name".into(),
         }];
-        TomlRepair::apply(&mut value, &actions);
+        let _ = TomlRepair::apply(&mut value, &actions);
         assert!(value.get("old_name").is_none());
         assert_eq!(value.get("name").and_then(|v| v.as_str()), Some("test"));
     }
@@ -279,7 +279,7 @@ mod tests {
         let actions = vec![RepairAction::Trim {
             field: "name".into(),
         }];
-        TomlRepair::apply(&mut value, &actions);
+        let _ = TomlRepair::apply(&mut value, &actions);
         assert_eq!(value.get("name").and_then(|v| v.as_str()), Some("hello"));
     }
 
@@ -290,7 +290,7 @@ mod tests {
             field: "server.host".into(),
             value: r#""localhost""#.into(),
         }];
-        TomlRepair::apply(&mut value, &actions);
+        let _ = TomlRepair::apply(&mut value, &actions);
         let host = value
             .get("server")
             .and_then(|s| s.get("host"))
@@ -300,7 +300,6 @@ mod tests {
 
     #[test]
     fn full_repair_flow_broken_toml() {
-        // Simulate: required field 'name' is missing, schema has a default.
         let schema = ConfigSchema::new().field(
             FieldSchema::required("name", FieldKind::String, "project name")
                 .with_default(r#""default-project""#),
@@ -308,19 +307,15 @@ mod tests {
 
         let mut value = parse("version = 1");
 
-        // 1. Validate
         let issues = SchemaValidator::validate(&schema, &value);
         assert_eq!(issues.len(), 1);
 
-        // 2. Suggest repairs
         let actions = TomlRepair::suggest(&schema, &issues);
         assert_eq!(actions.len(), 1);
 
-        // 3. Apply
         let applied = TomlRepair::apply(&mut value, &actions);
         assert_eq!(applied.len(), 1);
 
-        // 4. Re-validate — should now pass
         let issues_after = SchemaValidator::validate(&schema, &value);
         assert!(
             issues_after.is_empty(),

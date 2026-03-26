@@ -14,6 +14,7 @@ pub struct SchemaValidator;
 
 impl SchemaValidator {
     /// Validate `value` against `schema` and return all found issues.
+    #[must_use]
     pub fn validate(schema: &ConfigSchema, value: &Value) -> Vec<ValidationIssue> {
         let mut issues = Vec::new();
 

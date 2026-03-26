@@ -19,6 +19,7 @@ pub enum FieldKind {
 
 impl FieldKind {
     /// Human-readable name for error messages.
+    #[must_use]
     pub fn name(&self) -> &'static str {
         match self {
             FieldKind::String => "string",
@@ -31,6 +32,7 @@ impl FieldKind {
     }
 
     /// Check whether a TOML value is of this kind.
+    #[must_use]
     pub fn matches(&self, value: &Value) -> bool {
         matches!(
             (value, self),
@@ -63,6 +65,7 @@ pub struct FieldSchema {
 
 impl FieldSchema {
     /// Create a required field schema.
+    #[must_use]
     pub fn required(
         path: impl Into<String>,
         kind: FieldKind,
@@ -78,6 +81,7 @@ impl FieldSchema {
     }
 
     /// Create an optional field schema.
+    #[must_use]
     pub fn optional(
         path: impl Into<String>,
         kind: FieldKind,
@@ -93,6 +97,7 @@ impl FieldSchema {
     }
 
     /// Set the default value (TOML-encoded string). Used by auto-repair.
+    #[must_use]
     pub fn with_default(mut self, default: impl Into<String>) -> Self {
         self.default_value = Some(default.into());
         self
@@ -124,17 +129,20 @@ pub struct ConfigSchema {
 
 impl ConfigSchema {
     /// Create an empty schema.
+    #[must_use]
     pub fn new() -> Self {
         Self::default()
     }
 
     /// Append a field descriptor and return `self` (builder pattern).
+    #[must_use]
     pub fn field(mut self, field: FieldSchema) -> Self {
         self.fields.push(field);
         self
     }
 
     /// Return the descriptor for `path`, or `None` if not declared.
+    #[must_use]
     pub fn get(&self, path: &str) -> Option<&FieldSchema> {
         self.fields.iter().find(|f| f.path == path)
     }

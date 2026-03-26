@@ -17,6 +17,7 @@ pub struct ConfigLoader {
 
 impl ConfigLoader {
     /// Create a loader rooted at `base_dir`.
+    #[must_use]
     pub fn new(base_dir: PathBuf) -> Self {
         Self { base_dir }
     }
@@ -34,6 +35,11 @@ impl ConfigLoader {
     ///
     /// Returns `(value, Some(outcome))` when a repair was attempted,
     /// or `(value, None)` when the config was already valid.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`FsError::Config`] if the file cannot be read, or
+    /// [`FsError::Parse`] if the TOML content is invalid.
     pub fn load<T>(&self, path: &Path) -> Result<(T, Option<RepairOutcome>), FsError>
     where
         T: DeserializeOwned + Repairable,
@@ -55,6 +61,10 @@ impl ConfigLoader {
     }
 
     /// Serialize `value` to TOML and write it to `path`, creating a `.bak` backup first.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`FsError`] if backup, serialization, or file write fails.
     pub fn save<T: Serialize>(&self, path: &Path, value: &T) -> Result<(), FsError> {
         let full = self.resolve(path);
 
@@ -78,12 +88,20 @@ impl ConfigLoader {
     }
 
     /// Read raw TOML text from a file without deserializing or validating.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`FsError::Io`] if the file cannot be read.
     pub fn read_raw(&self, path: &Path) -> Result<String, FsError> {
         let full = self.resolve(path);
         std::fs::read_to_string(&full).map_err(FsError::Io)
     }
 
     /// Write raw text to a file (no validation, with backup).
+    ///
+    /// # Errors
+    ///
+    /// Returns [`FsError::Io`] if backup or file write fails.
     pub fn write_raw(&self, path: &Path, content: &str) -> Result<(), FsError> {
         let full = self.resolve(path);
         if full.exists() {
@@ -124,6 +142,11 @@ pub struct FeatureFlags {
 
 impl FeatureFlags {
     /// Load flags from a JSON file. Returns an empty set if the file does not exist.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`FsError::Config`] if the file exists but cannot be read, or
+    /// [`FsError::Parse`] if the JSON content is invalid.
     pub fn load_json(path: &Path) -> Result<Self, FsError> {
         if !path.exists() {
             return Ok(Self::default());
@@ -134,6 +157,11 @@ impl FeatureFlags {
     }
 
     /// Save flags to a JSON file.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`FsError::Io`] if directory creation or file write fails, or
+    /// [`FsError::Config`] if JSON serialization fails.
     pub fn save_json(&self, path: &Path) -> Result<(), FsError> {
         if let Some(parent) = path.parent() {
             std::fs::create_dir_all(parent).map_err(FsError::Io)?;
@@ -144,6 +172,7 @@ impl FeatureFlags {
     }
 
     /// Returns `true` if the flag is explicitly set to `true`.
+    #[must_use]
     pub fn is_enabled(&self, key: &str) -> bool {
         self.flags.get(key).copied().unwrap_or(false)
     }
@@ -164,6 +193,10 @@ impl FeatureFlags {
 /// Parse a TOML string directly without any file I/O.
 ///
 /// Useful for fuzz tests and unit tests where the content is already in memory.
+///
+/// # Errors
+///
+/// Returns [`FsError::Parse`] if the TOML content is invalid.
 pub fn parse_str<T: DeserializeOwned>(content: &str) -> Result<T, FsError> {
     toml::from_str(content).map_err(|e| FsError::Parse(format!("TOML parse error: {e}")))
 }
@@ -171,6 +204,11 @@ pub fn parse_str<T: DeserializeOwned>(content: &str) -> Result<T, FsError> {
 /// Load a TOML file directly without a [`ConfigLoader`] instance.
 ///
 /// Useful for one-off loads where no base directory context is needed.
+///
+/// # Errors
+///
+/// Returns [`FsError::Config`] if the file cannot be read, or
+/// [`FsError::Parse`] if the TOML content is invalid.
 pub fn load_toml<T: DeserializeOwned>(path: &Path) -> Result<T, FsError> {
     let text = std::fs::read_to_string(path)
         .map_err(|e| FsError::Config(format!("cannot read {}: {}", path.display(), e)))?;
@@ -178,6 +216,11 @@ pub fn load_toml<T: DeserializeOwned>(path: &Path) -> Result<T, FsError> {
 }
 
 /// Serialize and write a TOML file directly without a [`ConfigLoader`] instance.
+///
+/// # Errors
+///
+/// Returns [`FsError::Io`] if directory creation or file write fails, or
+/// [`FsError::Config`] if TOML serialization fails.
 pub fn save_toml<T: Serialize>(path: &Path, value: &T) -> Result<(), FsError> {
     if let Some(parent) = path.parent() {
         std::fs::create_dir_all(parent).map_err(FsError::Io)?;
@@ -227,14 +270,14 @@ mod tests {
         std::fs::create_dir_all(&dir).unwrap();
         let path = dir.join("test.toml");
 
-        let loader = ConfigLoader::new(dir.clone());
+        let ldr = ConfigLoader::new(dir.clone());
         let cfg = TestConfig {
             name: "hello".to_string(),
         };
-        loader.save(&path, &cfg).unwrap();
+        ldr.save(&path, &cfg).unwrap();
 
-        let (loaded, outcome) = loader.load::<TestConfig>(&path).unwrap();
-        assert_eq!(loaded.name, "hello");
+        let (result, outcome) = ldr.load::<TestConfig>(&path).unwrap();
+        assert_eq!(result.name, "hello");
         assert!(outcome.is_none());
     }
 
@@ -242,15 +285,14 @@ mod tests {
     fn relative_path_resolved_from_base() {
         let dir = std::env::temp_dir().join("fs-config-test-rel");
         std::fs::create_dir_all(&dir).unwrap();
-        let loader = ConfigLoader::new(dir.clone());
-        loader
-            .save(
-                Path::new("rel.toml"),
-                &TestConfig {
-                    name: "relative".to_string(),
-                },
-            )
-            .unwrap();
+        let ldr = ConfigLoader::new(dir.clone());
+        ldr.save(
+            Path::new("rel.toml"),
+            &TestConfig {
+                name: "relative".to_string(),
+            },
+        )
+        .unwrap();
         assert!(dir.join("rel.toml").exists());
     }
 
@@ -262,15 +304,14 @@ mod tests {
         std::fs::create_dir_all(&other).unwrap();
         let abs_path = other.join("abs.toml");
 
-        let loader = ConfigLoader::new(dir.clone());
-        loader
-            .save(
-                &abs_path,
-                &TestConfig {
-                    name: "absolute".to_string(),
-                },
-            )
-            .unwrap();
+        let ldr = ConfigLoader::new(dir.clone());
+        ldr.save(
+            &abs_path,
+            &TestConfig {
+                name: "absolute".to_string(),
+            },
+        )
+        .unwrap();
 
         assert!(abs_path.exists());
         assert!(!dir.join("abs.toml").exists());
@@ -281,24 +322,22 @@ mod tests {
         let dir = std::env::temp_dir().join("fs-config-test-bak");
         std::fs::create_dir_all(&dir).unwrap();
         let path = dir.join("backup.toml");
-        let loader = ConfigLoader::new(dir.clone());
+        let ldr = ConfigLoader::new(dir.clone());
 
-        loader
-            .save(
-                &path,
-                &TestConfig {
-                    name: "first".to_string(),
-                },
-            )
-            .unwrap();
-        loader
-            .save(
-                &path,
-                &TestConfig {
-                    name: "second".to_string(),
-                },
-            )
-            .unwrap();
+        ldr.save(
+            &path,
+            &TestConfig {
+                name: "first".to_string(),
+            },
+        )
+        .unwrap();
+        ldr.save(
+            &path,
+            &TestConfig {
+                name: "second".to_string(),
+            },
+        )
+        .unwrap();
 
         assert!(
             path.with_extension("toml.bak").exists(),
@@ -313,10 +352,10 @@ mod tests {
         let path = dir.join("repair.toml");
         std::fs::write(&path, r#"name = """#).unwrap();
 
-        let loader = ConfigLoader::new(dir.clone());
-        let (loaded, outcome) = loader.load::<TestConfig>(&path).unwrap();
+        let ldr = ConfigLoader::new(dir.clone());
+        let (result, outcome) = ldr.load::<TestConfig>(&path).unwrap();
         assert_eq!(
-            loaded.name, "default",
+            result.name, "default",
             "repair should set name to 'default'"
         );
         assert!(outcome.is_some(), "repair outcome should be returned");
@@ -324,8 +363,8 @@ mod tests {
 
     #[test]
     fn load_returns_error_for_missing_file() {
-        let loader = ConfigLoader::new(std::env::temp_dir());
-        let result = loader.load::<TestConfig>(Path::new("does-not-exist-fsn.toml"));
+        let ldr = ConfigLoader::new(std::env::temp_dir());
+        let result = ldr.load::<TestConfig>(Path::new("does-not-exist-fsn.toml"));
         assert!(result.is_err());
     }
 
@@ -339,8 +378,8 @@ mod tests {
             },
         )
         .unwrap();
-        let loaded: TestConfig = load_toml(&path).unwrap();
-        assert_eq!(loaded.name, "standalone");
+        let result: TestConfig = load_toml(&path).unwrap();
+        assert_eq!(result.name, "standalone");
     }
 
     #[test]
@@ -349,8 +388,8 @@ mod tests {
         std::fs::create_dir_all(&dir).unwrap();
         std::fs::write(dir.join("raw.toml"), r#"name = "rawval""#).unwrap();
 
-        let loader = ConfigLoader::new(dir.clone());
-        let raw = loader.read_raw(Path::new("raw.toml")).unwrap();
+        let ldr = ConfigLoader::new(dir.clone());
+        let raw = ldr.read_raw(Path::new("raw.toml")).unwrap();
         assert!(raw.contains("rawval"));
     }
 }
