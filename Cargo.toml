@@ -1,0 +1,18 @@
+[package]
+name        = "fs-config"
+description = "TOML config loader/saver with validation and auto-repair for FreeSynergy"
+version     = "0.1.0"
+edition     = "2021"
+license     = "MIT"
+authors     = ["FreeSynergy.Net"]
+repository  = "https://github.com/FreeSynergy/fs-config"
+
+[lib]
+name = "fs_config"
+path = "src/lib.rs"
+
+[dependencies]
+fs-error   = { path = "../fs-libs/fs-error" }
+serde      = { version = "1", features = ["derive"] }
+serde_json = { version = "1" }
+toml       = { version = "1", features = ["preserve_order"] }
