@@ -1,0 +1,11 @@
+[package]
+id        = "freeSynergy.config"
+version   = "0.1.0"
+kind      = "library"
+namespace = "freeSynergy"
+name      = "FreeSynergy Config"
+summary   = "TOML config loader/saver with validation and auto-repair — pure library"
+
+[package.repo]
+url    = "https://github.com/FreeSynergy/fs-config"
+branch = "main"
